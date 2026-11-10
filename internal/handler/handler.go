@@ -47,10 +47,6 @@ func (h *Handler) OperationWallet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "сумма должна быть меньше нуля")
 		return
 	}
-	if req.OperationType != "DEPOSIT" && req.OperationType != "WITHDRAW" {
-		writeError(w, http.StatusBadRequest, "operationType должен быть DEPOSIT или WITHDRAW")
-		return
-	}
 
 	var balance int64
 	var err error
