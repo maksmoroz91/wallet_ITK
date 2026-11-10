@@ -44,7 +44,7 @@ func (h *Handler) OperationWallet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Amount <= 0 {
-		writeError(w, http.StatusBadRequest, "сумма должна быть меньше нуля")
+		writeError(w, http.StatusBadRequest, "сумма должна быть больше нуля")
 		return
 	}
 
