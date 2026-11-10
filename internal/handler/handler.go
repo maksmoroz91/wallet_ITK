@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
@@ -11,12 +12,23 @@ import (
 	"github.com/maksmoroz91/wallet_ITK/internal/repository/postgres"
 )
 
-type Handler struct {
-	repo *postgres.WalletRepository
+type WalletRepository interface {
+	Deposit(ctx context.Context, id string, amount int64) (int64, error)
+	Withdraw(ctx context.Context, id string, amount int64) (int64, error)
+	GetBalance(ctx context.Context, id string) (int64, error)
 }
 
-func NewHandler(repo *postgres.WalletRepository) *Handler {
+type Handler struct {
+	repo WalletRepository
+}
+
+func NewHandler(repo WalletRepository) *Handler {
 	return &Handler{repo: repo}
+}
+
+func (h *Handler) Register(mux *http.ServeMux) {
+	mux.HandleFunc("POST /api/v1/wallet", h.OperationWallet)
+	mux.HandleFunc("GET /api/v1/wallets/{walletId}", h.GetBalanceWallet)
 }
 
 func (h *Handler) OperationWallet(w http.ResponseWriter, r *http.Request) {
@@ -32,7 +44,7 @@ func (h *Handler) OperationWallet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Amount <= 0 {
-		writeError(w, http.StatusBadRequest, "сумма должна быть больше нуля")
+		writeError(w, http.StatusBadRequest, "сумма должна быть меньше нуля")
 		return
 	}
 	if req.OperationType != "DEPOSIT" && req.OperationType != "WITHDRAW" {

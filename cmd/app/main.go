@@ -45,8 +45,7 @@ func main() {
 	h := handler.NewHandler(postgres.NewWalletRepository(pool))
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/v1/wallet", h.OperationWallet)
-	mux.HandleFunc("GET /api/v1/wallets/{walletId}", h.GetBalanceWallet)
+	h.Register(mux)
 
 	srv := &http.Server{
 		Addr:              ":" + port,
