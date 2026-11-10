@@ -2,49 +2,108 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/maksmoroz91/wallet_ITK/internal/model"
+	"github.com/maksmoroz91/wallet_ITK/internal/repository/postgres"
 )
 
-func OperationWallet(w http.ResponseWriter, r *http.Request) {
-	var req model.OperationRequest
+type Handler struct {
+	repo *postgres.WalletRepository
+}
 
+func NewHandler(repo *postgres.WalletRepository) *Handler {
+	return &Handler{repo: repo}
+}
+
+func (h *Handler) OperationWallet(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+
+	var req model.OperationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Неверный формат JSON", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, "некорректный JSON")
 		return
 	}
-	log.Printf("Пришел запрос: WalletId=%s, Type=%s, Amount=%d", req.WalletId, req.OperationType, req.Amount)
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-
-	response := model.OperationResponse{
-		Status:  "success",
-		Message: "Запрос принят",
-		Data:    req,
+	if _, err := uuid.Parse(req.WalletId); err != nil {
+		writeError(w, http.StatusBadRequest, "некорректный walletId")
+		return
+	}
+	if req.Amount <= 0 {
+		writeError(w, http.StatusBadRequest, "сумма должна быть больше нуля")
+		return
+	}
+	if req.OperationType != "DEPOSIT" && req.OperationType != "WITHDRAW" {
+		writeError(w, http.StatusBadRequest, "operationType должен быть DEPOSIT или WITHDRAW")
+		return
 	}
 
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Println("Ошибка кодирования JSON: ", err)
+	var balance int64
+	var err error
+	switch req.OperationType {
+	case "DEPOSIT":
+		balance, err = h.repo.Deposit(r.Context(), req.WalletId, req.Amount)
+	case "WITHDRAW":
+		balance, err = h.repo.Withdraw(r.Context(), req.WalletId, req.Amount)
+	default:
+		writeError(w, http.StatusBadRequest, "operationType должен быть DEPOSIT или WITHDRAW")
+		return
+	}
+	if err != nil {
+		handleRepoError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, model.OperationResponse{
+		Status:  "success",
+		Message: "операция выполнена",
+		Data: model.OperationData{
+			WalletId:      req.WalletId,
+			OperationType: req.OperationType,
+			Amount:        req.Amount,
+			Balance:       balance,
+		},
+	})
+}
+
+func (h *Handler) GetBalanceWallet(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("walletId")
+	if _, err := uuid.Parse(id); err != nil {
+		writeError(w, http.StatusBadRequest, "некорректный walletId")
+		return
+	}
+
+	balance, err := h.repo.GetBalance(r.Context(), id)
+	if err != nil {
+		handleRepoError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, model.BalanceResponse{
+		Status: "success",
+		Data:   model.WalletInfo{WalletId: id, Balance: balance},
+	})
+}
+
+func handleRepoError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, postgres.ErrWalletNotFound):
+		writeError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, postgres.ErrInsufficientFunds):
+		writeError(w, http.StatusUnprocessableEntity, err.Error())
+	default:
+		log.Printf("внутренняя ошибка: %v", err)
+		writeError(w, http.StatusInternalServerError, "внутренняя ошибка")
 	}
 }
 
-func GetBalanceWallet(w http.ResponseWriter, r *http.Request) {
-	walletId := r.PathValue("walletId")
-	log.Println("Запрос баланса кошелька: ", walletId)
+func writeError(w http.ResponseWriter, status int, msg string) {
+	writeJSON(w, status, model.ErrorResponse{Status: "error", Message: msg})
+}
 
+func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-
-	response := model.BalanceResponse{
-		WalletId: walletId,
-		Balance:  0,
-	}
-
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Println("Ошибка кодирования JSON: ", err)
-	}
-
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
 }
